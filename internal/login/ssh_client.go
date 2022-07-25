@@ -1,10 +1,11 @@
-package internal
+package login
 
 import (
 	"bufio"
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
@@ -18,37 +19,56 @@ import (
 
 func Run() {
 	var (
+		err      error
+		password string
+	)
+
+	if internal.Pass {
+		password = askPass("Enter SSH Password: ")
+	}
+
+	client, err := NewSSHClient(internal.Pass, internal.User, password, internal.Ip, internal.Port, internal.PrivateKey)
+	if err != nil {
+		fmt.Println("Connection failed, please check your connection setting")
+		return
+	}
+
+	if internal.AliasName == "" {
+		internal.AliasName = internal.Ip
+	}
+
+	if internal.Save {
+		SaveToLocal(internal.Pass, internal.Ip, internal.Port, internal.User, password, internal.PrivateKey, internal.AliasName)
+	}
+
+	defer client.Close()
+	RunTerminal(client, os.Stdout, os.Stdin)
+}
+
+func NewSSHClient(pass bool, user string, password string, ip string, port int, privateKey string) (*goph.Client, error) {
+	var (
 		auth goph.Auth
 		err  error
 	)
 
-	if internal.Pass {
-		auth = goph.Password(askPass("Enter SSH Password: "))
+	if pass {
+		auth = goph.Password(password)
 	} else {
-		auth, err = goph.Key(internal.Key, getPassphrase(internal.Passphrase))
+		auth, err = goph.Key(privateKey, "")
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 	}
 
 	client, err := goph.NewConn(&goph.Config{
-		User:     internal.User,
-		Addr:     internal.Ip,
-		Port:     uint(internal.Port),
+		User:     user,
+		Addr:     ip,
+		Port:     uint(port),
 		Auth:     auth,
 		Callback: VerifyHost,
 	})
 
-	if err != nil {
-		panic(err)
-	}
-
-	defer func() {
-		client.Close()
-		// 保存到本地
-		
-	}()
-	RunTerminal(client, os.Stdout, os.Stdin)
+	return client, err
 }
 
 func askPass(msg string) string {
@@ -59,12 +79,6 @@ func askPass(msg string) string {
 	}
 	fmt.Println("")
 	return strings.TrimSpace(string(pass))
-}
-func getPassphrase(ask bool) string {
-	if ask {
-		return askPass("Enter Private Key Passphrase: ")
-	}
-	return ""
 }
 
 func VerifyHost(host string, remote net.Addr, key ssh.PublicKey) error {
@@ -151,4 +165,62 @@ func RunTerminal(client *goph.Client, stdout, stderr io.Writer) error {
 	session.Shell()
 	session.Wait()
 	return nil
+}
+
+func SaveToLocal(hasPass bool, ip string, port int, user string, password string, privateKey string, aliasName string) {
+
+	var (
+		authType internal.AuthType
+		key      string
+	)
+	if _, err := os.Stat(internal.HomePath); err != nil {
+		fmt.Printf("%s path not exists，create now\n", internal.HomePath)
+		err := os.MkdirAll(internal.HomePath, 0755)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+	}
+
+	file, err := os.OpenFile(internal.ConfigPath, os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil && os.IsNotExist(err) {
+		fmt.Printf("%s file not exists，create now\n", internal.ConfigPath)
+		os.Create(internal.ConfigPath)
+	}
+	defer file.Close()
+
+	results, err := internal.ReadFile(internal.ConfigPath)
+	if err != nil {
+		panic(err)
+	}
+
+	for _, item := range results {
+		server := strings.Split(item, internal.Symbol)
+		if aliasName == server[0] {
+			fmt.Printf("Waring: server alias name [%s] already exits\n\n", aliasName)
+			return
+		}
+	}
+
+	if hasPass {
+		authType = internal.Username
+		key = password
+	} else {
+		authType = internal.SSHkey
+		key = privateKey
+	}
+
+	content := strings.Join([]string{aliasName, ip, user, fmt.Sprintf("%d", port), fmt.Sprintf("%v", authType), key}, internal.Symbol) + "\n"
+	if len(results) != 0 {
+		writer := bufio.NewWriter(file)
+		writer.WriteString(content)
+		writer.Flush()
+	} else {
+		err := ioutil.WriteFile(internal.ConfigPath, []byte(content), 0666)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	fmt.Printf("Your Connect Saved to %s\n\n", internal.ConfigPath)
 }

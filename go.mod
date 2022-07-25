@@ -9,7 +9,10 @@ require (
 	golang.org/x/crypto v0.0.0-20220622213112-05595931fe9d
 )
 
-require golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8 // indirect
+require (
+	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e // indirect
+	golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8 // indirect
+)
 
 require (
 	github.com/kr/fs v0.1.0 // indirect
@@ -18,4 +21,7 @@ require (
 	golang.org/x/term v0.0.0-20220526004731-065cf7ba2467
 )
 
-require github.com/pkg/errors v0.9.1 // indirect
+require (
+	github.com/manifoldco/promptui v0.9.0
+	github.com/pkg/errors v0.9.1 // indirect
+)
